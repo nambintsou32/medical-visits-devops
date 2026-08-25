@@ -29,24 +29,53 @@ pipeline {
                     java -version
                     javac -version
                     mvn --version
-                    docker version
-                    docker compose version
-                    kubectl version --client
                 '''
             }
         }
 
-        stage('Docker Smoke Test') {
+        stage('Build and Unit Tests') {
             steps {
                 sh '''
                     set -eu
-                    docker run --rm hello-world:latest
+                    mvn -B -ntp clean verify
                 '''
+            }
+
+            post {
+                always {
+                    junit(
+                        testResults: 'target/surefire-reports/*.xml',
+                        allowEmptyResults: true
+                    )
+                }
+            }
+        }
+
+        stage('Archive WAR') {
+            steps {
+                sh '''
+                    set -eu
+                    test -s target/medical-visits.war
+                    ls -lh target/medical-visits.war
+                '''
+
+                archiveArtifacts(
+                    artifacts: 'target/medical-visits.war',
+                    fingerprint: true
+                )
             }
         }
     }
 
     post {
+        success {
+            echo 'Java application build completed successfully.'
+        }
+
+        failure {
+            echo 'Java application build failed. Review the failed stage and logs.'
+        }
+
         always {
             cleanWs()
         }
