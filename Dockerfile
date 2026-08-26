@@ -10,6 +10,11 @@ RUN mvn -B -ntp clean package -DskipTests
 
 FROM tomcat:11.0.25-jre21-temurin-noble@sha256:c949189cc9d868547408e6b1b9911545e2a72c6088af7905866ee332d06f44f3 AS runtime
 
+LABEL org.opencontainers.image.title="Medical Visits"
+LABEL org.opencontainers.image.description="Medical visit management web application"
+LABEL org.opencontainers.image.source="https://github.com/nambintsou32/medical-visits-devops"
+LABEL org.opencontainers.image.licenses="MIT"
+
 ARG APP_UID=10001
 ARG APP_GID=10001
 

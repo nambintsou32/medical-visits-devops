@@ -5,6 +5,7 @@ pipeline {
 
     environment {
         IMAGE_REPOSITORY = 'medical-visits'
+        GHCR_IMAGE = 'ghcr.io/nambintsou32/medical-visits'
     }
 
     options {
@@ -22,18 +23,22 @@ pipeline {
 
                 script {
                     def commitSha = sh(
-                        script: 'git rev-parse --short=12 HEAD',
+                        script: 'git rev-parse HEAD',
                         returnStdout: true
                     ).trim()
 
-                    env.IMAGE_TAG =
-                        "${commitSha}-${env.BUILD_NUMBER}-${env.EXECUTOR_NUMBER}"
+                    def commitShaShort = commitSha.take(12)
 
+                    env.GIT_SHA_SHORT = commitShaShort
+                    env.IMAGE_TAG =
+                        "${commitShaShort}-${env.BUILD_NUMBER}-${env.EXECUTOR_NUMBER}"
+                    env.RELEASE_TAG = "sha-${commitShaShort}"
                     env.CONTAINER_NAME =
                         "medical-visits-${env.IMAGE_TAG}"
 
                     echo "Git commit: ${commitSha}"
-                    echo "Container image: ${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+                    echo "Local image: ${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+                    echo "Registry image: ${env.GHCR_IMAGE}:${env.RELEASE_TAG}"
                     echo "Container name: ${env.CONTAINER_NAME}"
                 }
             }
@@ -55,8 +60,11 @@ pipeline {
                     kubectl version --client
                     curl --version | head -n 1
 
+                    test -n "${GIT_SHA_SHORT}"
                     test -n "${IMAGE_TAG}"
+                    test -n "${RELEASE_TAG}"
                     test -n "${CONTAINER_NAME}"
+                    test -n "${GHCR_IMAGE}"
                 '''
             }
         }
@@ -119,11 +127,20 @@ pipeline {
                             --format '{{.Config.User}}'
                     )"
 
+                    IMAGE_SOURCE="$(
+                        docker image inspect \
+                            "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                            --format '{{index .Config.Labels "org.opencontainers.image.source"}}'
+                    )"
+
                     echo "Image architecture: ${IMAGE_ARCHITECTURE}"
                     echo "Image user: ${IMAGE_USER}"
+                    echo "Image source: ${IMAGE_SOURCE}"
 
                     test "${IMAGE_ARCHITECTURE}" = "arm64"
                     test "${IMAGE_USER}" = "10001:10001"
+                    test "${IMAGE_SOURCE}" = \
+                        "https://github.com/nambintsou32/medical-visits-devops"
                 '''
             }
         }
@@ -215,11 +232,70 @@ pipeline {
                 }
             }
         }
+
+        stage('Publish Container Image') {
+            when {
+                branch 'main'
+            }
+
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'ghcr-credentials',
+                        usernameVariable: 'GHCR_USERNAME',
+                        passwordVariable: 'GHCR_TOKEN'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+
+                        REMOTE_SHA_IMAGE="${GHCR_IMAGE}:${RELEASE_TAG}"
+                        REMOTE_LATEST_IMAGE="${GHCR_IMAGE}:latest"
+
+                        DOCKER_CONFIG_DIRECTORY="$(mktemp -d)"
+                        export DOCKER_CONFIG="${DOCKER_CONFIG_DIRECTORY}"
+
+                        cleanup_registry_authentication() {
+                            docker logout ghcr.io >/dev/null 2>&1 || true
+                            rm -rf "${DOCKER_CONFIG_DIRECTORY}"
+                        }
+
+                        trap cleanup_registry_authentication EXIT HUP INT TERM
+
+                        printf '%s' "${GHCR_TOKEN}" \
+                            | docker login \
+                                ghcr.io \
+                                --username "${GHCR_USERNAME}" \
+                                --password-stdin
+
+                        echo "Publishing immutable image ${REMOTE_SHA_IMAGE}"
+
+                        docker tag \
+                            "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                            "${REMOTE_SHA_IMAGE}"
+
+                        docker push "${REMOTE_SHA_IMAGE}"
+
+                        echo "Publishing convenience image ${REMOTE_LATEST_IMAGE}"
+
+                        docker tag \
+                            "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                            "${REMOTE_LATEST_IMAGE}"
+
+                        docker push "${REMOTE_LATEST_IMAGE}"
+
+                        echo "Published images:"
+                        echo "${REMOTE_SHA_IMAGE}"
+                        echo "${REMOTE_LATEST_IMAGE}"
+                    '''
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo 'Application tests and container validation completed successfully.'
+            echo 'Application tests and container pipeline completed successfully.'
         }
 
         failure {
@@ -241,6 +317,18 @@ pipeline {
                     docker image rm \
                         --force \
                         "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                        >/dev/null 2>&1 || true
+                fi
+
+                if [ -n "${RELEASE_TAG:-}" ]; then
+                    docker image rm \
+                        --force \
+                        "${GHCR_IMAGE}:${RELEASE_TAG}" \
+                        >/dev/null 2>&1 || true
+
+                    docker image rm \
+                        --force \
+                        "${GHCR_IMAGE}:latest" \
                         >/dev/null 2>&1 || true
                 fi
             '''
