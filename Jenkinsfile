@@ -19,6 +19,23 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+
+                script {
+                    def commitSha = sh(
+                        script: 'git rev-parse --short=12 HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    env.IMAGE_TAG =
+                        "${commitSha}-${env.BUILD_NUMBER}-${env.EXECUTOR_NUMBER}"
+
+                    env.CONTAINER_NAME =
+                        "medical-visits-${env.IMAGE_TAG}"
+
+                    echo "Git commit: ${commitSha}"
+                    echo "Container image: ${env.IMAGE_REPOSITORY}:${env.IMAGE_TAG}"
+                    echo "Container name: ${env.CONTAINER_NAME}"
+                }
             }
         }
 
@@ -37,6 +54,9 @@ pipeline {
                     docker compose version
                     kubectl version --client
                     curl --version | head -n 1
+
+                    test -n "${IMAGE_TAG}"
+                    test -n "${CONTAINER_NAME}"
                 '''
             }
         }
@@ -63,6 +83,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     test -s target/medical-visits.war
                     ls -lh target/medical-visits.war
                 '''
@@ -79,20 +100,22 @@ pipeline {
                 sh '''
                     set -eu
 
+                    echo "Building image ${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+
                     docker build \
                         --platform linux/arm64 \
-                        --tag "${IMAGE_REPOSITORY}:${BUILD_TAG}" \
+                        --tag "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
                         .
 
                     IMAGE_ARCHITECTURE="$(
                         docker image inspect \
-                            "${IMAGE_REPOSITORY}:${BUILD_TAG}" \
+                            "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
                             --format '{{.Architecture}}'
                     )"
 
                     IMAGE_USER="$(
                         docker image inspect \
-                            "${IMAGE_REPOSITORY}:${BUILD_TAG}" \
+                            "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
                             --format '{{.Config.User}}'
                     )"
 
@@ -110,13 +133,13 @@ pipeline {
                 sh '''
                     set -eu
 
-                    CONTAINER_NAME="${BUILD_TAG}"
+                    echo "Starting container ${CONTAINER_NAME}"
 
                     docker run \
                         --detach \
                         --name "${CONTAINER_NAME}" \
                         --publish 127.0.0.1::8080 \
-                        "${IMAGE_REPOSITORY}:${BUILD_TAG}"
+                        "${IMAGE_REPOSITORY}:${IMAGE_TAG}"
 
                     HOST_PORT="$(
                         docker port "${CONTAINER_NAME}" 8080/tcp \
@@ -127,8 +150,11 @@ pipeline {
                     echo "Container port: ${HOST_PORT}"
 
                     ATTEMPT=1
+                    HEALTH_RESPONSE=""
 
                     while [ "${ATTEMPT}" -le 30 ]; do
+                        echo "Health check attempt ${ATTEMPT}/30"
+
                         if HEALTH_RESPONSE="$(
                             curl \
                                 --fail \
@@ -150,23 +176,41 @@ pipeline {
                         sleep 1
                     done
 
+                    test "${HEALTH_RESPONSE}" = '{"status":"UP"}'
+
+                    echo "Container process identity:"
                     docker exec "${CONTAINER_NAME}" id
 
-                    test "$(
+                    CONTAINER_UID="$(
                         docker exec "${CONTAINER_NAME}" id -u
-                    )" = "10001"
+                    )"
 
-                    test "$(
+                    CONTAINER_GID="$(
                         docker exec "${CONTAINER_NAME}" id -g
-                    )" = "10001"
+                    )"
+
+                    echo "Container UID: ${CONTAINER_UID}"
+                    echo "Container GID: ${CONTAINER_GID}"
+
+                    test "${CONTAINER_UID}" = "10001"
+                    test "${CONTAINER_GID}" = "10001"
                 '''
             }
 
             post {
                 always {
                     sh '''
-                        docker logs "${BUILD_TAG}" || true
-                        docker rm --force "${BUILD_TAG}" || true
+                        set +e
+
+                        if [ -n "${CONTAINER_NAME:-}" ]; then
+                            echo "Container logs:"
+                            docker logs "${CONTAINER_NAME}" || true
+
+                            docker rm \
+                                --force \
+                                "${CONTAINER_NAME}" \
+                                >/dev/null 2>&1 || true
+                        fi
                     '''
                 }
             }
@@ -184,11 +228,21 @@ pipeline {
 
         always {
             sh '''
-                docker rm --force "${BUILD_TAG}" >/dev/null 2>&1 || true
-                docker image rm \
-                    --force \
-                    "${IMAGE_REPOSITORY}:${BUILD_TAG}" \
-                    >/dev/null 2>&1 || true
+                set +e
+
+                if [ -n "${CONTAINER_NAME:-}" ]; then
+                    docker rm \
+                        --force \
+                        "${CONTAINER_NAME}" \
+                        >/dev/null 2>&1 || true
+                fi
+
+                if [ -n "${IMAGE_TAG:-}" ]; then
+                    docker image rm \
+                        --force \
+                        "${IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+                        >/dev/null 2>&1 || true
+                fi
             '''
 
             cleanWs()
