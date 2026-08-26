@@ -33,7 +33,7 @@ pipeline {
             }
         }
 
-        stage('Build and Unit Tests') {
+        stage('Build and Tests') {
             steps {
                 sh '''
                     set -eu
@@ -44,8 +44,8 @@ pipeline {
             post {
                 always {
                     junit(
-                        testResults: 'target/surefire-reports/*.xml',
-                        allowEmptyResults: true
+                        testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
+                        allowEmptyResults: false
                     )
                 }
             }
