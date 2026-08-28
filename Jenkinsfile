@@ -71,35 +71,27 @@ pipeline {
 
         stage('Build and Tests') {
             steps {
-                withEnv([
-                    'TESTCONTAINERS_RYUK_DISABLED=true',
-                    'TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1',
-                    'MAVEN_OPTS=-Djava.net.preferIPv4Stack=true'
-                ]) {
-                    sh '''
-                        set -eu
+                sh '''
+                    set -eu
 
-                        echo "Ryuk disabled: ${TESTCONTAINERS_RYUK_DISABLED}"
-                        echo "Testcontainers host override: ${TESTCONTAINERS_HOST_OVERRIDE}"
-
-                        mvn -B -ntp clean verify
-                        '''
-                }
+                    mvn -B -ntp clean verify
+                '''
             }
 
             post {
                 always {
                     junit(
-                testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
-                allowEmptyResults: false
-            )
+                        testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
+                        allowEmptyResults: false
+                    )
 
                     sh '''
-                set +e
-                echo "=== Testcontainers diagnostics ==="
-                docker ps -a --no-trunc \
-                    --filter 'label=org.testcontainers=true'
-            '''
+                        set +e
+
+                        echo "=== Testcontainers diagnostics ==="
+                        docker ps -a --no-trunc \
+                            --filter 'label=org.testcontainers=true'
+                    '''
                 }
             }
         }
