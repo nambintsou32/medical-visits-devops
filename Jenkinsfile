@@ -73,6 +73,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     mvn -B -ntp clean verify
                 '''
             }
@@ -83,6 +84,14 @@ pipeline {
                         testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
                         allowEmptyResults: false
                     )
+
+                    sh '''
+                        set +e
+
+                        echo "=== Testcontainers diagnostics ==="
+                        docker ps -a --no-trunc \
+                            --filter 'label=org.testcontainers=true'
+                    '''
                 }
             }
         }
