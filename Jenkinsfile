@@ -70,19 +70,25 @@ pipeline {
         }
 
         stage('Build and Tests') {
+            environment {
+                TESTCONTAINERS_RYUK_DISABLED = 'true'
+            }
+
             steps {
                 sh '''
-                    set -eu
-                    mvn -B -ntp clean verify
-                '''
+            set -eu
+
+            echo "Ryuk disabled: ${TESTCONTAINERS_RYUK_DISABLED}"
+            mvn -B -ntp clean verify
+        '''
             }
 
             post {
                 always {
                     junit(
-                        testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
-                        allowEmptyResults: false
-                    )
+                testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
+                allowEmptyResults: false
+            )
                 }
             }
         }
