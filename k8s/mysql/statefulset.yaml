@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: medical-visits-mysql
+  namespace: medical-visits
+  labels:
+    app.kubernetes.io/name: medical-visits-mysql
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: medical-visits
+spec:
+  serviceName: medical-visits-mysql-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: medical-visits-mysql
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: medical-visits-mysql
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: medical-visits
+    spec:
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: mysql
+          image: mysql:8.4.11
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mysql
+              containerPort: 3306
+              protocol: TCP
+          env:
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: medical-visits-mysql
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: medical-visits-mysql
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medical-visits-mysql
+                  key: MYSQL_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: medical-visits-mysql
+                  key: MYSQL_ROOT_PASSWORD
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - mysqladmin ping -h localhost -uroot -p"${MYSQL_ROOT_PASSWORD}" --silent
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: mysql
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - mysqladmin ping -h localhost -uroot -p"${MYSQL_ROOT_PASSWORD}" --silent
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: medical-visits-mysql
+          app.kubernetes.io/component: database
+          app.kubernetes.io/part-of: medical-visits
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 2Gi
