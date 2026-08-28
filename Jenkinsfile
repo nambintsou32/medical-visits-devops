@@ -70,46 +70,36 @@ pipeline {
         }
 
         stage('Build and Tests') {
-            environment {
-                TESTCONTAINERS_RYUK_DISABLED = 'true'
-            }
-
             steps {
-                sh '''
-            set -eu
+                withEnv([
+                    'TESTCONTAINERS_RYUK_DISABLED=true',
+                    'TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1',
+                    'MAVEN_OPTS=-Djava.net.preferIPv4Stack=true'
+                ]) {
+                    sh '''
+                        set -eu
 
-            echo "Ryuk disabled: ${TESTCONTAINERS_RYUK_DISABLED}"
-            mvn -B -ntp clean verify
-        '''
+                        echo "Ryuk disabled: ${TESTCONTAINERS_RYUK_DISABLED}"
+                        echo "Testcontainers host override: ${TESTCONTAINERS_HOST_OVERRIDE}"
+
+                        mvn -B -ntp clean verify
+                        '''
+                }
             }
 
             post {
                 always {
-                    sh '''
-            set +e
-
-            echo '=== Testcontainers diagnostics ==='
-            docker ps -a --no-trunc \
-                --filter 'label=org.testcontainers=true'
-
-            for CONTAINER_ID in $(
-                docker ps -aq \
-                    --filter 'label=org.testcontainers=true'
-            ); do
-                echo "=== Inspect: ${CONTAINER_ID} ==="
-                docker inspect "${CONTAINER_ID}" \
-                    --format 'State={{json .State}} Ports={{json .NetworkSettings.Ports}}' \
-                    || true
-
-                echo "=== Logs: ${CONTAINER_ID} ==="
-                docker logs "${CONTAINER_ID}" || true
-            done
-        '''
-
                     junit(
-            testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
-            allowEmptyResults: false
-        )
+                testResults: 'target/surefire-reports/TEST-*.xml,target/failsafe-reports/TEST-*.xml',
+                allowEmptyResults: false
+            )
+
+                    sh '''
+                set +e
+                echo "=== Testcontainers diagnostics ==="
+                docker ps -a --no-trunc \
+                    --filter 'label=org.testcontainers=true'
+            '''
                 }
             }
         }
