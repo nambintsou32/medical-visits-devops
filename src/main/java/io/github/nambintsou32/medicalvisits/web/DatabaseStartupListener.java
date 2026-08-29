@@ -15,7 +15,15 @@ public final class DatabaseStartupListener
 
     @Override
     public void contextInitialized(ServletContextEvent event) {
-        String jdbcUrl = requiredEnvironmentVariable("DB_URL");
+        String jdbcUrl = System.getenv("DB_URL");
+
+        if (jdbcUrl == null || jdbcUrl.isBlank()) {
+            event.getServletContext().log(
+                "Database migration skipped: DB_URL is not configured"
+            );
+            return;
+        }
+
         String username = requiredEnvironmentVariable("DB_USER");
         String password = requiredEnvironmentVariable("DB_PASSWORD");
 
