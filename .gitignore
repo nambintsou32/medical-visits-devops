@@ -63,3 +63,6 @@ out/
 .project
 .settings/
 .factorypath
+
+# Kubernetes secrets containing local credentials
+k8s/mysql/secret.yaml
