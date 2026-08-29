@@ -5,14 +5,13 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 
-import io.github.nambintsou32.medicalvisits.domain.Medecin;
-import io.github.nambintsou32.medicalvisits.domain.Patient;
 import io.github.nambintsou32.medicalvisits.domain.Visiter;
 import io.github.nambintsou32.medicalvisits.domain.VisiterId;
 import io.github.nambintsou32.medicalvisits.persistence.MedecinRepository;
 import io.github.nambintsou32.medicalvisits.persistence.PatientRepository;
 import io.github.nambintsou32.medicalvisits.persistence.VisiterRepository;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.PersistenceException;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -28,140 +27,162 @@ public final class VisiterServlet extends HttpServlet {
 
     @Override
     public void init() {
-        EntityManagerFactory entityManagerFactory =
-                DatabaseStartupListener.getEntityManagerFactory(
-                    getServletContext()
-                );
-
-        medecinRepository = new MedecinRepository(entityManagerFactory);
-        patientRepository = new PatientRepository(entityManagerFactory);
-        visiterRepository = new VisiterRepository(entityManagerFactory);
+        EntityManagerFactory factory = DatabaseStartupListener
+                .getEntityManagerFactory(getServletContext());
+        medecinRepository = new MedecinRepository(factory);
+        patientRepository = new PatientRepository(factory);
+        visiterRepository = new VisiterRepository(factory);
     }
 
     @Override
-    protected void doGet(
-            HttpServletRequest request,
-            HttpServletResponse response
-    ) throws ServletException, IOException {
-        String path = request.getPathInfo();
-
-        if ("/new".equals(path)) {
-            showForm(request, response, null, null);
-            return;
-        }
-
-        if ("/edit".equals(path)) {
-            VisiterId id = visitIdFromRequest(
-                request,
-                "codeMed",
-                "codePat",
-                "visitDate"
-            );
-
-            Visiter visiter = visiterRepository.findById(id)
-                    .orElseThrow(() -> new IllegalArgumentException(
-                        "Visite introuvable"
-                    ));
-
-            showForm(request, response, visiter, null);
-            return;
-        }
-
-        showList(request, response);
-    }
-
-    @Override
-    protected void doPost(
-            HttpServletRequest request,
-            HttpServletResponse response
-    ) throws ServletException, IOException {
-        request.setCharacterEncoding("UTF-8");
-        String action = requiredParameter(request, "action");
-
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
         try {
-            switch (action) {
-                case "create" -> createVisite(request);
-                case "replace" -> replaceVisite(request);
-                case "delete" -> deleteVisite(request);
-                default -> throw new IllegalArgumentException(
-                    "Action inconnue : " + action
+            String path = request.getPathInfo();
+            if ("/new".equals(path)) {
+                showForm(request, response, null, false, null);
+                return;
+            }
+            if ("/edit".equals(path)) {
+                VisiterId id = visitIdFromRequest(
+                    request, "codeMed", "codePat", "visitDate"
                 );
+                Visiter visit = visiterRepository.findById(id)
+                        .orElseThrow(() -> new IllegalArgumentException(
+                            "La visite demandée est introuvable."
+                        ));
+                showForm(request, response, visit, true, null);
+                return;
             }
-
-            response.sendRedirect(
-                request.getContextPath()
-                    + "/visites?message="
-                    + action
-            );
+            showList(request, response);
         } catch (IllegalArgumentException exception) {
-            if ("delete".equals(action)) {
-                request.setAttribute("error", exception.getMessage());
-                showList(request, response);
-            } else {
-                showForm(request, response, null, exception.getMessage());
-            }
+            request.setAttribute("error", exception.getMessage());
+            showList(request, response);
         }
     }
 
-    private void showList(
-            HttpServletRequest request,
-            HttpServletResponse response
-    ) throws ServletException, IOException {
-        List<Visiter> visites = visiterRepository.findAll();
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        request.setCharacterEncoding("UTF-8");
+        String action = trimToNull(request.getParameter("action"));
+        try {
+            if (action == null) {
+                throw new IllegalArgumentException("Aucune action n’a été indiquée.");
+            }
+            switch (action) {
+                case "create" -> createVisit(request);
+                case "replace" -> replaceVisit(request);
+                case "delete" -> deleteVisit(request);
+                default -> throw new IllegalArgumentException("L’action demandée n’est pas valide.");
+            }
+            response.sendRedirect(request.getContextPath() + "/visites?message=" + action);
+        } catch (IllegalArgumentException exception) {
+            displayPostError(request, response, action, exception.getMessage());
+        } catch (PersistenceException exception) {
+            getServletContext().log("Échec de l’action visite « " + action + " »", exception);
+            displayPostError(
+                request,
+                response,
+                action,
+                "La visite n’a pas pu être enregistrée. Vérifiez qu’elle n’existe pas déjà."
+            );
+        } catch (RuntimeException exception) {
+            getServletContext().log(
+                "Erreur inattendue pendant l’action visite « " + action + " »",
+                exception
+            );
+            displayPostError(request, response, action,
+                "Une erreur technique empêche l’opération. Veuillez réessayer.");
+        }
+    }
 
-        request.setAttribute("visites", visites);
-        request.getRequestDispatcher("/WEB-INF/jsp/visites.jsp")
-                .forward(request, response);
+    private void displayPostError(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            String action,
+            String message
+    ) throws ServletException, IOException {
+        request.setAttribute("error", message);
+        if ("create".equals(action) || "replace".equals(action)) {
+            showForm(request, response, null, "replace".equals(action), message);
+        } else {
+            showList(request, response);
+        }
+    }
+
+    private void showList(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+        List<Visiter> visits = visiterRepository.findAll();
+        request.setAttribute("visites", visits);
+        request.getRequestDispatcher("/WEB-INF/jsp/visites.jsp").forward(request, response);
     }
 
     private void showForm(
             HttpServletRequest request,
             HttpServletResponse response,
-            Visiter visiter,
+            Visiter visit,
+            boolean editing,
             String error
     ) throws ServletException, IOException {
-        request.setAttribute("visiter", visiter);
+        request.setAttribute("visiter", visit);
+        request.setAttribute("editing", editing);
+        request.setAttribute("formSubmitted", error != null);
         request.setAttribute("medecins", medecinRepository.findAll());
         request.setAttribute("patients", patientRepository.findAll());
         request.setAttribute("error", error);
-        request.getRequestDispatcher("/WEB-INF/jsp/visite-form.jsp")
-                .forward(request, response);
+        request.getRequestDispatcher("/WEB-INF/jsp/visite-form.jsp").forward(request, response);
     }
 
-    private void createVisite(HttpServletRequest request) {
-        visiterRepository.create(
-            requiredParameter(request, "codeMed"),
-            requiredParameter(request, "codePat"),
-            requiredDate(request, "visitDate")
-        );
+    private void createVisit(HttpServletRequest request) {
+        String codeMed = required(request, "codeMed", "médecin");
+        String codePat = required(request, "codePat", "patient");
+        LocalDate date = requiredDate(request, "visitDate", "date de visite");
+        validateReferences(codeMed, codePat);
+        VisiterId id = new VisiterId(codeMed, codePat, date);
+        if (visiterRepository.findById(id).isPresent()) {
+            throw new IllegalArgumentException(
+                "Une visite identique existe déjà pour ce médecin, ce patient et cette date."
+            );
+        }
+        visiterRepository.create(codeMed, codePat, date);
     }
 
-    private void replaceVisite(HttpServletRequest request) {
+    private void replaceVisit(HttpServletRequest request) {
         VisiterId currentId = visitIdFromRequest(
-            request,
-            "currentCodeMed",
-            "currentCodePat",
-            "currentVisitDate"
+            request, "currentCodeMed", "currentCodePat", "currentVisitDate"
         );
+        if (visiterRepository.findById(currentId).isEmpty()) {
+            throw new IllegalArgumentException("La visite à modifier est introuvable.");
+        }
 
-        visiterRepository.replace(
-            currentId,
-            requiredParameter(request, "codeMed"),
-            requiredParameter(request, "codePat"),
-            requiredDate(request, "visitDate")
-        );
+        String codeMed = required(request, "codeMed", "médecin");
+        String codePat = required(request, "codePat", "patient");
+        LocalDate date = requiredDate(request, "visitDate", "date de visite");
+        validateReferences(codeMed, codePat);
+        VisiterId replacementId = new VisiterId(codeMed, codePat, date);
+        if (!currentId.equals(replacementId)
+                && visiterRepository.findById(replacementId).isPresent()) {
+            throw new IllegalArgumentException(
+                "Une visite identique existe déjà pour ce médecin, ce patient et cette date."
+            );
+        }
+        visiterRepository.replace(currentId, codeMed, codePat, date);
     }
 
-    private void deleteVisite(HttpServletRequest request) {
-        VisiterId id = visitIdFromRequest(
-            request,
-            "codeMed",
-            "codePat",
-            "visitDate"
-        );
+    private void validateReferences(String codeMed, String codePat) {
+        if (medecinRepository.findByCode(codeMed).isEmpty()) {
+            throw new IllegalArgumentException("Le médecin sélectionné n’existe plus.");
+        }
+        if (patientRepository.findByCode(codePat).isEmpty()) {
+            throw new IllegalArgumentException("Le patient sélectionné n’existe plus.");
+        }
+    }
 
+    private void deleteVisit(HttpServletRequest request) {
+        VisiterId id = visitIdFromRequest(request, "codeMed", "codePat", "visitDate");
         if (!visiterRepository.deleteById(id)) {
-            throw new IllegalArgumentException("Visite introuvable");
+            throw new IllegalArgumentException("La visite à supprimer est introuvable.");
         }
     }
 
@@ -169,40 +190,37 @@ public final class VisiterServlet extends HttpServlet {
             HttpServletRequest request,
             String codeMedParameter,
             String codePatParameter,
-            String visitDateParameter
+            String dateParameter
     ) {
         return new VisiterId(
-            requiredParameter(request, codeMedParameter),
-            requiredParameter(request, codePatParameter),
-            requiredDate(request, visitDateParameter)
+            required(request, codeMedParameter, "médecin"),
+            required(request, codePatParameter, "patient"),
+            requiredDate(request, dateParameter, "date de visite")
         );
     }
 
     private static LocalDate requiredDate(
             HttpServletRequest request,
-            String name
+            String name,
+            String label
     ) {
+        String value = required(request, name, label);
         try {
-            return LocalDate.parse(requiredParameter(request, name));
+            return LocalDate.parse(value);
         } catch (DateTimeParseException exception) {
-            throw new IllegalArgumentException(
-                "La date " + name + " est invalide"
-            );
+            throw new IllegalArgumentException("La date de visite n’est pas valide.");
         }
     }
 
-    private static String requiredParameter(
-            HttpServletRequest request,
-            String name
-    ) {
-        String value = request.getParameter(name);
-
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(
-                "Le champ " + name + " est obligatoire"
-            );
+    private static String required(HttpServletRequest request, String name, String label) {
+        String value = trimToNull(request.getParameter(name));
+        if (value == null) {
+            throw new IllegalArgumentException("Le champ « " + label + " » est obligatoire.");
         }
+        return value;
+    }
 
-        return value.trim();
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
