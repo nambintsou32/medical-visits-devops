@@ -1,130 +1,92 @@
 package io.github.nambintsou32.medicalvisits.domain;
 
-import java.time.LocalDate;
 import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
-import jakarta.persistence.Version;
 
 @Entity
-@Table(
-    name = "patients",
-    uniqueConstraints = {
-        @UniqueConstraint(
-            name = "uk_patients_medical_record_number",
-            columnNames = "medical_record_number"
-        )
-    }
-)
+@Table(name = "patients")
 public class Patient {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "code_pat", nullable = false, length = 30, updatable = false)
+    private String codePat;
 
-    @Version
-    private long version;
+    @Column(name = "nom", nullable = false, length = 100)
+    private String nom;
 
-    @Column(
-        name = "medical_record_number",
-        nullable = false,
-        length = 30,
-        updatable = false
-    )
-    private String medicalRecordNumber;
+    @Column(name = "prenom", nullable = false, length = 100)
+    private String prenom;
 
-    @Column(name = "first_name", nullable = false, length = 100)
-    private String firstName;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sexe", nullable = false, length = 20)
+    private Sexe sexe;
 
-    @Column(name = "last_name", nullable = false, length = 100)
-    private String lastName;
-
-    @Column(name = "birth_date", nullable = false)
-    private LocalDate birthDate;
-
-    @Column(name = "phone", length = 30)
-    private String phone;
+    @Column(name = "adresse", nullable = false, length = 255)
+    private String adresse;
 
     protected Patient() {
         // Required by JPA.
     }
 
     public Patient(
-            String medicalRecordNumber,
-            String firstName,
-            String lastName,
-            LocalDate birthDate
+            String codePat,
+            String nom,
+            String prenom,
+            Sexe sexe,
+            String adresse
     ) {
-        this.medicalRecordNumber = requireText(
-            medicalRecordNumber,
-            "medicalRecordNumber"
-        );
-        this.firstName = requireText(firstName, "firstName");
-        this.lastName = requireText(lastName, "lastName");
-        this.birthDate = Objects.requireNonNull(birthDate, "birthDate");
+        this.codePat = requireText(codePat, "codePat");
+        this.nom = requireText(nom, "nom");
+        this.prenom = requireText(prenom, "prenom");
+        this.sexe = Objects.requireNonNull(sexe, "sexe");
+        this.adresse = requireText(adresse, "adresse");
     }
 
-    public Long getId() {
-        return id;
+    public String getCodePat() {
+        return codePat;
     }
 
-    public long getVersion() {
-        return version;
+    public String getNom() {
+        return nom;
     }
 
-    public String getMedicalRecordNumber() {
-        return medicalRecordNumber;
+    public void setNom(String nom) {
+        this.nom = requireText(nom, "nom");
     }
 
-    public String getFirstName() {
-        return firstName;
+    public String getPrenom() {
+        return prenom;
     }
 
-    public void setFirstName(String firstName) {
-        this.firstName = requireText(firstName, "firstName");
+    public void setPrenom(String prenom) {
+        this.prenom = requireText(prenom, "prenom");
     }
 
-    public String getLastName() {
-        return lastName;
+    public Sexe getSexe() {
+        return sexe;
     }
 
-    public void setLastName(String lastName) {
-        this.lastName = requireText(lastName, "lastName");
+    public void setSexe(Sexe sexe) {
+        this.sexe = Objects.requireNonNull(sexe, "sexe");
     }
 
-    public LocalDate getBirthDate() {
-        return birthDate;
+    public String getAdresse() {
+        return adresse;
     }
 
-    public void setBirthDate(LocalDate birthDate) {
-        this.birthDate = Objects.requireNonNull(birthDate, "birthDate");
-    }
-
-    public String getPhone() {
-        return phone;
-    }
-
-    public void setPhone(String phone) {
-        this.phone = normalizeNullable(phone);
+    public void setAdresse(String adresse) {
+        this.adresse = requireText(adresse, "adresse");
     }
 
     private static String requireText(String value, String fieldName) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(fieldName + " must not be blank");
-        }
-
-        return value.trim();
-    }
-
-    private static String normalizeNullable(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
         }
 
         return value.trim();

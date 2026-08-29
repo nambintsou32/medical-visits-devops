@@ -5,87 +5,71 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 
-import io.github.nambintsou32.medicalvisits.domain.Patient;
+import io.github.nambintsou32.medicalvisits.domain.Medecin;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.EntityTransaction;
 
-public final class PatientRepository {
+public final class MedecinRepository {
 
     private final EntityManagerFactory entityManagerFactory;
 
-    public PatientRepository(EntityManagerFactory entityManagerFactory) {
+    public MedecinRepository(EntityManagerFactory entityManagerFactory) {
         this.entityManagerFactory = Objects.requireNonNull(
             entityManagerFactory,
             "entityManagerFactory"
         );
     }
 
-    public Patient create(Patient patient) {
-        Objects.requireNonNull(patient, "patient");
+    public Medecin create(Medecin medecin) {
+        Objects.requireNonNull(medecin, "medecin");
 
         return executeInTransaction(entityManager -> {
-            entityManager.persist(patient);
+            entityManager.persist(medecin);
             entityManager.flush();
-            return patient;
+            return medecin;
         });
     }
 
-    public Optional<Patient> findByCode(String codePat) {
-        Objects.requireNonNull(codePat, "codePat");
+    public Optional<Medecin> findByCode(String codeMed) {
+        Objects.requireNonNull(codeMed, "codeMed");
 
         return executeInTransaction(entityManager ->
-            Optional.ofNullable(entityManager.find(Patient.class, codePat.trim()))
+            Optional.ofNullable(entityManager.find(Medecin.class, codeMed.trim()))
         );
     }
 
-    public List<Patient> findAll() {
+    public List<Medecin> findAll() {
         return executeInTransaction(entityManager ->
             entityManager.createQuery(
-                "select patient from Patient patient order by patient.codePat",
-                Patient.class
+                "select medecin from Medecin medecin "
+                    + "order by medecin.nom, medecin.prenom, medecin.codeMed",
+                Medecin.class
             ).getResultList()
         );
     }
 
-    public List<Patient> findByNomContaining(String nom) {
-        Objects.requireNonNull(nom, "nom");
-
-        return executeInTransaction(entityManager ->
-            entityManager.createQuery(
-                """
-                select patient
-                from Patient patient
-                where lower(patient.nom) like :nom
-                order by patient.nom, patient.prenom, patient.codePat
-                """,
-                Patient.class
-            ).setParameter("nom", "%" + nom.trim().toLowerCase() + "%")
-             .getResultList()
-        );
-    }
-
-    public Patient update(Patient patient) {
-        Objects.requireNonNull(patient, "patient");
+    public Medecin update(Medecin medecin) {
+        Objects.requireNonNull(medecin, "medecin");
 
         return executeInTransaction(entityManager -> {
-            Patient updatedPatient = entityManager.merge(patient);
+            Medecin updatedMedecin = entityManager.merge(medecin);
             entityManager.flush();
-            return updatedPatient;
+            return updatedMedecin;
         });
     }
 
-    public boolean deleteByCode(String codePat) {
-        Objects.requireNonNull(codePat, "codePat");
+    public boolean deleteByCode(String codeMed) {
+        Objects.requireNonNull(codeMed, "codeMed");
 
         return executeInTransaction(entityManager -> {
-            Patient patient = entityManager.find(Patient.class, codePat.trim());
+            Medecin medecin = entityManager.find(Medecin.class, codeMed.trim());
 
-            if (patient == null) {
+            if (medecin == null) {
                 return false;
             }
 
-            entityManager.remove(patient);
+            entityManager.remove(medecin);
             entityManager.flush();
             return true;
         });

@@ -2,7 +2,6 @@ package io.github.nambintsou32.medicalvisits.persistence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
@@ -18,7 +17,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
 
+import io.github.nambintsou32.medicalvisits.domain.Medecin;
 import io.github.nambintsou32.medicalvisits.domain.Patient;
+import io.github.nambintsou32.medicalvisits.domain.Sexe;
+import io.github.nambintsou32.medicalvisits.domain.Visiter;
+import io.github.nambintsou32.medicalvisits.domain.VisiterId;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.EntityTransaction;
@@ -27,18 +30,20 @@ import jakarta.persistence.EntityTransaction;
 class PatientRepositoryIT {
 
     @Container
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4.11")
-            .withDatabaseName("medical_visits")
-            .withUsername("medical_visits")
-            .withPassword("integration-test-password");
+    private static final MySQLContainer MYSQL =
+            new MySQLContainer("mysql:8.4.11")
+                    .withDatabaseName("medical_visits")
+                    .withUsername("medical_visits")
+                    .withPassword("integration-test-password");
 
     private static EntityManagerFactory entityManagerFactory;
     private static PatientRepository patientRepository;
-    private static MigrateResult initialMigrationResult;
+    private static MedecinRepository medecinRepository;
+    private static VisiterRepository visiterRepository;
 
     @BeforeAll
     static void createPersistenceContext() {
-        initialMigrationResult = DatabaseMigrator.migrate(
+        DatabaseMigrator.migrate(
                 MYSQL.getJdbcUrl(),
                 MYSQL.getUsername(),
                 MYSQL.getPassword());
@@ -58,23 +63,21 @@ class PatientRepositoryIT {
                 "false");
 
         entityManagerFactory = EntityManagerFactoryProvider.create(properties);
-
         patientRepository = new PatientRepository(entityManagerFactory);
+        medecinRepository = new MedecinRepository(entityManagerFactory);
+        visiterRepository = new VisiterRepository(entityManagerFactory);
     }
 
     @BeforeEach
-    void deleteExistingPatients() {
+    void deleteExistingData() {
         EntityManager entityManager = entityManagerFactory.createEntityManager();
-
         EntityTransaction transaction = entityManager.getTransaction();
 
         try {
             transaction.begin();
-
-            entityManager
-                    .createQuery("delete from Patient")
-                    .executeUpdate();
-
+            entityManager.createQuery("delete from Visiter").executeUpdate();
+            entityManager.createQuery("delete from Medecin").executeUpdate();
+            entityManager.createQuery("delete from Patient").executeUpdate();
             transaction.commit();
         } catch (RuntimeException exception) {
             if (transaction.isActive()) {
@@ -95,159 +98,175 @@ class PatientRepositoryIT {
     }
 
     @Test
-    void flywayAppliesVersionedMigrationExactlyOnce() {
+    void flywayAppliesBothMigrationsExactlyOnce() {
         MigrateResult secondMigrationResult = DatabaseMigrator.migrate(
                 MYSQL.getJdbcUrl(),
                 MYSQL.getUsername(),
                 MYSQL.getPassword());
 
-        assertEquals(
-                0,
-                secondMigrationResult.migrationsExecuted,
-                "A second Flyway execution must not reapply V1");
+        assertEquals(0, secondMigrationResult.migrationsExecuted);
 
         EntityManager entityManager = entityManagerFactory.createEntityManager();
 
         try {
-            Object rawResult = entityManager
-                    .createNativeQuery(
-                            """
-                                    SELECT COUNT(*)
-                                    FROM flyway_schema_history
-                                    WHERE version = '1'
-                                      AND success = TRUE
-                                    """)
-                    .getSingleResult();
+            Object rawResult = entityManager.createNativeQuery(
+                    """
+                    SELECT COUNT(*)
+                    FROM flyway_schema_history
+                    WHERE version IN ('1', '2')
+                      AND success = TRUE
+                    """).getSingleResult();
 
-            long successfulMigrationCount = ((Number) rawResult).longValue();
-
-            assertEquals(
-                    1L,
-                    successfulMigrationCount,
-                    "Flyway migration V1 must be recorded exactly once");
+            assertEquals(2L, ((Number) rawResult).longValue());
         } finally {
             entityManager.close();
         }
     }
 
     @Test
-    void createPersistsPatientInMySql() {
-        Patient patient = new Patient(
-                "MRN-1001",
-                "Alice",
+    void createAndFindPatientByCode() {
+        patientRepository.create(new Patient(
+                "PAT-1001",
                 "Rakoto",
-                LocalDate.of(1998, 4, 15));
+                "Alice",
+                Sexe.FEMININ,
+                "Antananarivo"));
 
-        Patient createdPatient = patientRepository.create(patient);
-
-        assertNotNull(createdPatient.getId());
-
-        assertEquals(
-                "MRN-1001",
-                createdPatient.getMedicalRecordNumber());
-    }
-
-    @Test
-    void findByIdReadsPatientFromMySql() {
-        Patient createdPatient = patientRepository.create(
-                new Patient(
-                        "MRN-1002",
-                        "Bruno",
-                        "Rasoa",
-                        LocalDate.of(1989, 7, 21)));
-
-        Patient foundPatient = patientRepository
-                .findById(createdPatient.getId())
+        Patient patient = patientRepository
+                .findByCode("PAT-1001")
                 .orElseThrow();
 
-        assertEquals(
-                createdPatient.getId(),
-                foundPatient.getId());
-
-        assertEquals(
-                "Bruno",
-                foundPatient.getFirstName());
-
-        assertEquals(
-                "Rasoa",
-                foundPatient.getLastName());
+        assertEquals("Rakoto", patient.getNom());
+        assertEquals("Alice", patient.getPrenom());
+        assertEquals(Sexe.FEMININ, patient.getSexe());
     }
 
     @Test
-    void updateModifiesPatientInMySql() {
-        Patient createdPatient = patientRepository.create(
-                new Patient(
-                        "MRN-1003",
-                        "Claire",
-                        "Andria",
-                        LocalDate.of(1995, 10, 8)));
+    void searchPatientsByNom() {
+        patientRepository.create(new Patient(
+                "PAT-1002",
+                "Rasoa",
+                "Bruno",
+                Sexe.MASCULIN,
+                "Fianarantsoa"));
 
-        createdPatient.setFirstName("Clara");
-        createdPatient.setPhone("+261340000003");
+        patientRepository.create(new Patient(
+                "PAT-1003",
+                "Rakoto",
+                "Claire",
+                Sexe.FEMININ,
+                "Antsirabe"));
 
-        Patient updatedPatient = patientRepository.update(createdPatient);
+        List<Patient> patients = patientRepository
+                .findByNomContaining("rak");
+
+        assertEquals(1, patients.size());
+        assertEquals("PAT-1003", patients.get(0).getCodePat());
+    }
+
+    @Test
+    void updatePatient() {
+        Patient patient = patientRepository.create(new Patient(
+                "PAT-1004",
+                "Rabe",
+                "David",
+                Sexe.MASCULIN,
+                "Mahajanga"));
+
+        patient.setAdresse("Toamasina");
+        patient.setSexe(Sexe.FEMININ);
+
+        patientRepository.update(patient);
 
         Patient reloadedPatient = patientRepository
-                .findById(updatedPatient.getId())
+                .findByCode("PAT-1004")
                 .orElseThrow();
 
-        assertEquals(
-                "Clara",
-                reloadedPatient.getFirstName());
-
-        assertEquals(
-                "+261340000003",
-                reloadedPatient.getPhone());
+        assertEquals("Toamasina", reloadedPatient.getAdresse());
+        assertEquals(Sexe.FEMININ, reloadedPatient.getSexe());
     }
 
     @Test
-    void deleteRemovesPatientFromMySql() {
-        Patient createdPatient = patientRepository.create(
-                new Patient(
-                        "MRN-1004",
-                        "David",
-                        "Rabe",
-                        LocalDate.of(2000, 1, 12)));
+    void deletePatient() {
+        patientRepository.create(new Patient(
+                "PAT-1005",
+                "Rajaona",
+                "Eva",
+                Sexe.FEMININ,
+                "Antananarivo"));
 
-        boolean deleted = patientRepository.deleteById(createdPatient.getId());
-
-        assertTrue(deleted);
-
-        assertTrue(
-                patientRepository
-                        .findById(createdPatient.getId())
-                        .isEmpty());
-
-        assertFalse(
-                patientRepository.deleteById(createdPatient.getId()));
+        assertTrue(patientRepository.deleteByCode("PAT-1005"));
+        assertTrue(patientRepository.findByCode("PAT-1005").isEmpty());
+        assertFalse(patientRepository.deleteByCode("PAT-1005"));
     }
 
     @Test
-    void findAllReturnsPersistedPatients() {
-        patientRepository.create(
-                new Patient(
-                        "MRN-1005",
-                        "Eva",
-                        "Rajaona",
-                        LocalDate.of(1993, 6, 4)));
+    void createUpdateAndDeleteMedecin() {
+        Medecin medecin = medecinRepository.create(new Medecin(
+                "MED-1001",
+                "Andria",
+                "Jean",
+                "Cardiologue"));
 
-        patientRepository.create(
-                new Patient(
-                        "MRN-1006",
-                        "Fara",
-                        "Ramanana",
-                        LocalDate.of(1987, 11, 19)));
-
-        List<Patient> patients = patientRepository.findAll();
-
-        assertEquals(2, patients.size());
+        medecin.setGrade("Professeur");
+        medecinRepository.update(medecin);
 
         assertEquals(
-                "MRN-1005",
-                patients.get(0).getMedicalRecordNumber());
+                "Professeur",
+                medecinRepository
+                        .findByCode("MED-1001")
+                        .orElseThrow()
+                        .getGrade());
 
-        assertEquals(
-                "MRN-1006",
-                patients.get(1).getMedicalRecordNumber());
+        assertTrue(medecinRepository.deleteByCode("MED-1001"));
+        assertTrue(medecinRepository.findByCode("MED-1001").isEmpty());
+    }
+
+    @Test
+    void createReplaceAndDeleteVisite() {
+        medecinRepository.create(new Medecin(
+                "MED-1002",
+                "Ranaivo",
+                "Marie",
+                "Generaliste"));
+
+        patientRepository.create(new Patient(
+                "PAT-1006",
+                "Randria",
+                "Fara",
+                Sexe.FEMININ,
+                "Toliara"));
+
+        LocalDate firstDate = LocalDate.of(2026, 8, 29);
+
+        visiterRepository.create("MED-1002", "PAT-1006", firstDate);
+
+        List<Visiter> visits = visiterRepository.findAll();
+
+        assertEquals(1, visits.size());
+        assertEquals("MED-1002", visits.get(0).getMedecin().getCodeMed());
+        assertEquals("PAT-1006", visits.get(0).getPatient().getCodePat());
+
+        VisiterId firstId = new VisiterId(
+                "MED-1002",
+                "PAT-1006",
+                firstDate);
+        LocalDate updatedDate = LocalDate.of(2026, 8, 30);
+
+        visiterRepository.replace(
+                firstId,
+                "MED-1002",
+                "PAT-1006",
+                updatedDate);
+
+        VisiterId updatedId = new VisiterId(
+                "MED-1002",
+                "PAT-1006",
+                updatedDate);
+
+        assertTrue(visiterRepository.findById(firstId).isEmpty());
+        assertTrue(visiterRepository.findById(updatedId).isPresent());
+        assertTrue(visiterRepository.deleteById(updatedId));
+        assertFalse(visiterRepository.deleteById(updatedId));
     }
 }
