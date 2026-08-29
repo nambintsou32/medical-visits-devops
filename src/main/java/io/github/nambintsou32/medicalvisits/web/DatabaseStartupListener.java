@@ -5,6 +5,7 @@ import org.flywaydb.core.api.output.MigrateResult;
 import io.github.nambintsou32.medicalvisits.persistence.DatabaseMigrator;
 import io.github.nambintsou32.medicalvisits.persistence.EntityManagerFactoryProvider;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletContextEvent;
 import jakarta.servlet.ServletContextListener;
 import jakarta.servlet.annotation.WebListener;
@@ -13,12 +14,17 @@ import jakarta.servlet.annotation.WebListener;
 public final class DatabaseStartupListener
         implements ServletContextListener {
 
+    public static final String ENTITY_MANAGER_FACTORY_ATTRIBUTE =
+            DatabaseStartupListener.class.getName()
+                    + ".entityManagerFactory";
+
     @Override
     public void contextInitialized(ServletContextEvent event) {
+        ServletContext servletContext = event.getServletContext();
         String jdbcUrl = System.getenv("DB_URL");
 
         if (jdbcUrl == null || jdbcUrl.isBlank()) {
-            event.getServletContext().log(
+            servletContext.log(
                 "Database migration skipped: DB_URL is not configured"
             );
             return;
@@ -34,14 +40,44 @@ public final class DatabaseStartupListener
         );
 
         EntityManagerFactory entityManagerFactory =
-            EntityManagerFactoryProvider.createFromEnvironment();
+                EntityManagerFactoryProvider.createFromEnvironment();
 
-        entityManagerFactory.close();
+        servletContext.setAttribute(
+            ENTITY_MANAGER_FACTORY_ATTRIBUTE,
+            entityManagerFactory
+        );
 
-        event.getServletContext().log(
+        servletContext.log(
             "Database migration completed: "
                 + result.migrationsExecuted
                 + " migration(s) executed"
+        );
+    }
+
+    @Override
+    public void contextDestroyed(ServletContextEvent event) {
+        Object attribute = event.getServletContext().getAttribute(
+            ENTITY_MANAGER_FACTORY_ATTRIBUTE
+        );
+
+        if (attribute instanceof EntityManagerFactory entityManagerFactory) {
+            entityManagerFactory.close();
+        }
+    }
+
+    public static EntityManagerFactory getEntityManagerFactory(
+            ServletContext servletContext
+    ) {
+        Object attribute = servletContext.getAttribute(
+            ENTITY_MANAGER_FACTORY_ATTRIBUTE
+        );
+
+        if (attribute instanceof EntityManagerFactory entityManagerFactory) {
+            return entityManagerFactory;
+        }
+
+        throw new IllegalStateException(
+            "Database is not configured for this application"
         );
     }
 

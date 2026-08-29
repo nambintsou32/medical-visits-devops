@@ -19,25 +19,21 @@ public final class VisiterRepository {
 
     public VisiterRepository(EntityManagerFactory entityManagerFactory) {
         this.entityManagerFactory = Objects.requireNonNull(
-            entityManagerFactory,
-            "entityManagerFactory"
-        );
+                entityManagerFactory,
+                "entityManagerFactory");
     }
 
     public Visiter create(
             String codeMed,
             String codePat,
-            java.time.LocalDate visitDate
-    ) {
+            java.time.LocalDate visitDate) {
         return executeInTransaction(entityManager -> {
             Medecin medecin = entityManager.getReference(
-                Medecin.class,
-                requireText(codeMed, "codeMed")
-            );
+                    Medecin.class,
+                    requireText(codeMed, "codeMed"));
             Patient patient = entityManager.getReference(
-                Patient.class,
-                requireText(codePat, "codePat")
-            );
+                    Patient.class,
+                    requireText(codePat, "codePat"));
 
             Visiter visiter = new Visiter(medecin, patient, visitDate);
             entityManager.persist(visiter);
@@ -49,34 +45,38 @@ public final class VisiterRepository {
     public Optional<Visiter> findById(VisiterId id) {
         Objects.requireNonNull(id, "id");
 
-        return executeInTransaction(entityManager ->
-            Optional.ofNullable(entityManager.find(Visiter.class, id))
-        );
+        return executeInTransaction(entityManager -> entityManager.createQuery(
+                """
+                        select visiter
+                        from Visiter visiter
+                        join fetch visiter.medecin
+                        join fetch visiter.patient
+                        where visiter.id = :id
+                        """,
+                Visiter.class).setParameter("id", id)
+                .getResultStream()
+                .findFirst());
     }
 
     public List<Visiter> findAll() {
-        return executeInTransaction(entityManager ->
-            entityManager.createQuery(
+        return executeInTransaction(entityManager -> entityManager.createQuery(
                 """
-                select visiter
-                from Visiter visiter
-                join fetch visiter.medecin
-                join fetch visiter.patient
-                order by visiter.id.visitDate desc,
-                         visiter.id.codeMed,
-                         visiter.id.codePat
-                """,
-                Visiter.class
-            ).getResultList()
-        );
+                        select visiter
+                        from Visiter visiter
+                        join fetch visiter.medecin
+                        join fetch visiter.patient
+                        order by visiter.id.visitDate desc,
+                                 visiter.id.codeMed,
+                                 visiter.id.codePat
+                        """,
+                Visiter.class).getResultList());
     }
 
     public Visiter replace(
             VisiterId currentId,
             String newCodeMed,
             String newCodePat,
-            java.time.LocalDate newVisitDate
-    ) {
+            java.time.LocalDate newVisitDate) {
         Objects.requireNonNull(currentId, "currentId");
 
         return executeInTransaction(entityManager -> {
@@ -90,19 +90,16 @@ public final class VisiterRepository {
             entityManager.flush();
 
             Medecin medecin = entityManager.getReference(
-                Medecin.class,
-                requireText(newCodeMed, "newCodeMed")
-            );
+                    Medecin.class,
+                    requireText(newCodeMed, "newCodeMed"));
             Patient patient = entityManager.getReference(
-                Patient.class,
-                requireText(newCodePat, "newCodePat")
-            );
+                    Patient.class,
+                    requireText(newCodePat, "newCodePat"));
 
             Visiter replacement = new Visiter(
-                medecin,
-                patient,
-                newVisitDate
-            );
+                    medecin,
+                    patient,
+                    newVisitDate);
             entityManager.persist(replacement);
             entityManager.flush();
             return replacement;
@@ -126,10 +123,8 @@ public final class VisiterRepository {
     }
 
     private <T> T executeInTransaction(
-            Function<EntityManager, T> operation
-    ) {
-        EntityManager entityManager =
-            entityManagerFactory.createEntityManager();
+            Function<EntityManager, T> operation) {
+        EntityManager entityManager = entityManagerFactory.createEntityManager();
         EntityTransaction transaction = entityManager.getTransaction();
 
         try {
